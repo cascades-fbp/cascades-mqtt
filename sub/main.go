@@ -3,15 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
-	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
-	zmq "github.com/alecthomas/gozmq"
-	helper "github.com/cascades-fbp/cascades-mqtt/lib"
-	"github.com/cascades-fbp/cascades/components/utils"
-	"github.com/cascades-fbp/cascades/runtime"
 	"io/ioutil"
 	"log"
 	"os"
 	"time"
+
+	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
+	helper "github.com/cascades-fbp/cascades-mqtt/lib"
+	"github.com/cascades-fbp/cascades/components/utils"
+	"github.com/cascades-fbp/cascades/runtime"
+	zmq "github.com/pebbe/zmq4"
 )
 
 var (
@@ -23,7 +24,6 @@ var (
 	debug           = flag.Bool("debug", false, "Enable debug mode")
 
 	// Internal
-	context                       *zmq.Context
 	optionsPort, outPort, errPort *zmq.Socket
 	err                           error
 )
@@ -40,17 +40,14 @@ func validateArgs() {
 }
 
 func openPorts() {
-	context, err = zmq.NewContext()
+	optionsPort, err = utils.CreateInputPort(*optionsEndpoint)
 	utils.AssertError(err)
 
-	optionsPort, err = utils.CreateInputPort(context, *optionsEndpoint)
-	utils.AssertError(err)
-
-	outPort, err = utils.CreateOutputPort(context, *outputEndpoint)
+	outPort, err = utils.CreateOutputPort(*outputEndpoint)
 	utils.AssertError(err)
 
 	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort(context, *errorEndpoint)
+		errPort, err = utils.CreateOutputPort(*errorEndpoint)
 		utils.AssertError(err)
 	}
 }
@@ -61,7 +58,7 @@ func closePorts() {
 	if errPort != nil {
 		errPort.Close()
 	}
-	context.Close()
+	zmq.Term()
 }
 
 func main() {
@@ -96,7 +93,7 @@ func main() {
 		qos           mqtt.QoS
 	)
 	for {
-		ip, err = optionsPort.RecvMultipart(0)
+		ip, err = optionsPort.RecvMessageBytes(0)
 		if err != nil {
 			log.Println("Error receiving IP:", err.Error())
 			continue
@@ -135,8 +132,8 @@ func main() {
 }
 
 func messageHandler(client *mqtt.MqttClient, message mqtt.Message) {
-	outPort.SendMultipart(runtime.NewOpenBracket(), 0)
-	outPort.SendMultipart(runtime.NewPacket([]byte(message.Topic())), 0)
-	outPort.SendMultipart(runtime.NewPacket(message.Payload()), 0)
-	outPort.SendMultipart(runtime.NewCloseBracket(), 0)
+	outPort.SendMessage(runtime.NewOpenBracket())
+	outPort.SendMessage(runtime.NewPacket([]byte(message.Topic())))
+	outPort.SendMessage(runtime.NewPacket(message.Payload()))
+	outPort.SendMessage(runtime.NewCloseBracket())
 }

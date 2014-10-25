@@ -2,12 +2,13 @@ package lib
 
 import (
 	"fmt"
-	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
 )
 
 //

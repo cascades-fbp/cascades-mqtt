@@ -3,14 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
-	zmq "github.com/alecthomas/gozmq"
-	helper "github.com/cascades-fbp/cascades-mqtt/lib"
-	"github.com/cascades-fbp/cascades/components/utils"
-	"github.com/cascades-fbp/cascades/runtime"
 	"io/ioutil"
 	"log"
 	"os"
+
+	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
+	helper "github.com/cascades-fbp/cascades-mqtt/lib"
+	"github.com/cascades-fbp/cascades/components/utils"
+	"github.com/cascades-fbp/cascades/runtime"
+	zmq "github.com/pebbe/zmq4"
 )
 
 var (
@@ -22,7 +23,6 @@ var (
 	debug           = flag.Bool("debug", false, "Enable debug mode")
 
 	// Internal
-	context                      *zmq.Context
 	inPort, optionsPort, errPort *zmq.Socket
 	err                          error
 )
@@ -39,17 +39,14 @@ func validateArgs() {
 }
 
 func openPorts() {
-	context, err = zmq.NewContext()
+	optionsPort, err = utils.CreateInputPort(*optionsEndpoint)
 	utils.AssertError(err)
 
-	optionsPort, err = utils.CreateInputPort(context, *optionsEndpoint)
-	utils.AssertError(err)
-
-	inPort, err = utils.CreateInputPort(context, *inputEndpoint)
+	inPort, err = utils.CreateInputPort(*inputEndpoint)
 	utils.AssertError(err)
 
 	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort(context, *errorEndpoint)
+		errPort, err = utils.CreateOutputPort(*errorEndpoint)
 		utils.AssertError(err)
 	}
 }
@@ -60,7 +57,7 @@ func closePorts() {
 	if errPort != nil {
 		errPort.Close()
 	}
-	context.Close()
+	zmq.Term()
 }
 
 func main() {
@@ -85,7 +82,7 @@ func main() {
 	defer closePorts()
 
 	ch := utils.HandleInterruption()
-	err = runtime.SetupShutdownByDisconnect(context, inPort, "mqtt-pub.in", ch)
+	err = runtime.SetupShutdownByDisconnect(inPort, "mqtt-pub.in", ch)
 	utils.AssertError(err)
 
 	log.Println("Waiting for options to arrive...")
@@ -97,7 +94,7 @@ func main() {
 		qos           mqtt.QoS
 	)
 	for {
-		ip, err = optionsPort.RecvMultipart(0)
+		ip, err = optionsPort.RecvMessageBytes(0)
 		if err != nil {
 			log.Println("Error receiving IP:", err.Error())
 			continue
@@ -127,7 +124,7 @@ func main() {
 	log.Println("Started...")
 	var customTopic string
 	for {
-		ip, err = inPort.RecvMultipart(0)
+		ip, err = inPort.RecvMessageBytes(0)
 		if err != nil {
 			log.Println("Error receiving message:", err.Error())
 			continue
@@ -137,7 +134,7 @@ func main() {
 		}
 		if runtime.IsOpenBracket(ip) {
 			for {
-				ip, err = inPort.RecvMultipart(0)
+				ip, err = inPort.RecvMessageBytes(0)
 				if err != nil {
 					log.Println("Error receiving message:", err.Error())
 					continue
