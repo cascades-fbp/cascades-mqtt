@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"syscall"
 	"time"
 
 	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
@@ -25,6 +26,7 @@ var (
 
 	// Internal
 	optionsPort, outPort, errPort *zmq.Socket
+	outCh, errCh                  chan bool
 	err                           error
 )
 
@@ -40,14 +42,14 @@ func validateArgs() {
 }
 
 func openPorts() {
-	optionsPort, err = utils.CreateInputPort(*optionsEndpoint)
+	optionsPort, err = utils.CreateInputPort("mqtt/subscribe.options", *optionsEndpoint, nil)
 	utils.AssertError(err)
 
-	outPort, err = utils.CreateOutputPort(*outputEndpoint)
+	outPort, err = utils.CreateOutputPort("mqtt/subscribe.out", *outputEndpoint, outCh)
 	utils.AssertError(err)
 
 	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort(*errorEndpoint)
+		errPort, err = utils.CreateOutputPort("mqtt/subscribe.err", *errorEndpoint, errCh)
 		utils.AssertError(err)
 	}
 }
@@ -79,10 +81,46 @@ func main() {
 
 	validateArgs()
 
+	ch := utils.HandleInterruption()
+	outCh = make(chan bool)
+	errCh = make(chan bool)
+
 	openPorts()
 	defer closePorts()
 
-	utils.HandleInterruption()
+	ports := 0
+	if outPort != nil {
+		ports++
+	}
+	if errPort != nil {
+		ports++
+	}
+
+	waitCh := make(chan bool)
+	go func(num int) {
+		total := 0
+		for {
+			select {
+			case v := <-outCh:
+				if !v {
+					log.Println("OUT port is closed. Interrupting execution")
+					ch <- syscall.SIGTERM
+				} else {
+					total++
+				}
+			case v := <-errCh:
+				if !v {
+					log.Println("ERR port is closed. Interrupting execution")
+					ch <- syscall.SIGTERM
+				} else {
+					total++
+				}
+			}
+			if total >= num && waitCh != nil {
+				waitCh <- true
+			}
+		}
+	}(ports)
 
 	log.Println("Waiting for options to arrive...")
 	var (
@@ -102,7 +140,7 @@ func main() {
 			continue
 		}
 
-		clientOptions, defaultTopic, qos, err = helper.ParseOptionsUri(string(ip[1]))
+		clientOptions, defaultTopic, qos, err = helper.ParseOptionsURI(string(ip[1]))
 		if err != nil {
 			log.Printf("Failed to parse connection uri. Error: %s", err.Error())
 			continue

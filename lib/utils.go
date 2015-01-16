@@ -12,13 +12,13 @@ import (
 )
 
 //
-// Parses URI in the following format:
-// tcp://username:password@127.0.0.1:1883/topic?clientId=...&clean=true&qos=0
+// ParseOptionsURI parses URI in the following format:
+// tcp://username:password@127.0.0.1:1883/topic?clientID=...&clean=true&qos=0
 // Keep in mind # should be expressed as %23
 //
 // Returns client options, default topic, qos, error
 //
-func ParseOptionsUri(uri string) (*mqtt.ClientOptions, string, mqtt.QoS, error) {
+func ParseOptionsURI(uri string) (*mqtt.ClientOptions, string, mqtt.QoS, error) {
 	url, err := url.Parse(uri)
 	if err != nil {
 		return nil, "", mqtt.QOS_ZERO, err
@@ -36,12 +36,12 @@ func ParseOptionsUri(uri string) (*mqtt.ClientOptions, string, mqtt.QoS, error) 
 
 	opts.AddBroker(fmt.Sprintf("%s://%s", url.Scheme, url.Host))
 
-	clientId := url.Query().Get("clientId")
-	if clientId == "" {
+	clientID := url.Query().Get("clientID")
+	if clientID == "" {
 		hn, _ := os.Hostname()
-		clientId = "mqtt-pub_" + strings.Split(hn, ".")[0] + strconv.Itoa(time.Now().Nanosecond())
+		clientID = "mqtt-pub_" + strings.Split(hn, ".")[0] + strconv.Itoa(time.Now().Nanosecond())
 	}
-	opts.SetClientId(clientId)
+	opts.SetClientId(clientID)
 
 	cleanSession := true
 	if url.Query().Get("clean") != "" && url.Query().Get("clean") != "true" {

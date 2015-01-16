@@ -6,6 +6,7 @@ import (
 
 var registryEntry = &library.Entry{
 	Description: "Publishes received payload to MQTT broker configured using options port",
+	Elementary:  true,
 	Inports: []library.EntryPort{
 		library.EntryPort{
 			Name:        "IN",

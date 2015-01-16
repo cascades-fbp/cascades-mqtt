@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"syscall"
+	"time"
 
 	mqtt "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
 	helper "github.com/cascades-fbp/cascades-mqtt/lib"
@@ -24,6 +26,7 @@ var (
 
 	// Internal
 	inPort, optionsPort, errPort *zmq.Socket
+	inCh, errCh                  chan bool
 	err                          error
 )
 
@@ -39,14 +42,14 @@ func validateArgs() {
 }
 
 func openPorts() {
-	optionsPort, err = utils.CreateInputPort(*optionsEndpoint)
+	optionsPort, err = utils.CreateInputPort("mqtt/pub.options", *optionsEndpoint, nil)
 	utils.AssertError(err)
 
-	inPort, err = utils.CreateInputPort(*inputEndpoint)
+	inPort, err = utils.CreateInputPort("mqtt/pub.in", *inputEndpoint, inCh)
 	utils.AssertError(err)
 
 	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort(*errorEndpoint)
+		errPort, err = utils.CreateOutputPort("mqtt/pub.err", *errorEndpoint, errCh)
 		utils.AssertError(err)
 	}
 }
@@ -78,12 +81,53 @@ func main() {
 
 	validateArgs()
 
+	ch := utils.HandleInterruption()
+	inCh = make(chan bool)
+	errCh = make(chan bool)
+
 	openPorts()
 	defer closePorts()
 
-	ch := utils.HandleInterruption()
-	err = runtime.SetupShutdownByDisconnect(inPort, "mqtt-pub.in", ch)
-	utils.AssertError(err)
+	ports := 1
+	if errPort != nil {
+		ports++
+	}
+
+	waitCh := make(chan bool)
+	go func(num int) {
+		total := 0
+		for {
+			select {
+			case v := <-inCh:
+				if !v {
+					log.Println("IN port is closed. Interrupting execution")
+					ch <- syscall.SIGTERM
+				} else {
+					total++
+				}
+			case v := <-errCh:
+				if !v {
+					log.Println("ERR port is closed. Interrupting execution")
+					ch <- syscall.SIGTERM
+				} else {
+					total++
+				}
+			}
+			if total >= num && waitCh != nil {
+				waitCh <- true
+			}
+		}
+	}(ports)
+
+	log.Println("Waiting for port connections to establish... ")
+	select {
+	case <-waitCh:
+		log.Println("Ports connected")
+		waitCh = nil
+	case <-time.Tick(30 * time.Second):
+		log.Println("Timeout: port connections were not established within provided interval")
+		os.Exit(1)
+	}
 
 	log.Println("Waiting for options to arrive...")
 	var (
@@ -103,7 +147,7 @@ func main() {
 			continue
 		}
 
-		clientOptions, defaultTopic, qos, err = helper.ParseOptionsUri(string(ip[1]))
+		clientOptions, defaultTopic, qos, err = helper.ParseOptionsURI(string(ip[1]))
 		if err != nil {
 			log.Printf("Failed to parse connection uri. Error: %s", err.Error())
 			continue

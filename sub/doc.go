@@ -6,6 +6,7 @@ import (
 
 var registryEntry = &library.Entry{
 	Description: "Subscribes to a given MQTT broker's topic and outputs all incoming message to output port",
+	Elementary:  true,
 	Inports: []library.EntryPort{
 		library.EntryPort{
 			Name:        "OPTIONS",
@@ -19,7 +20,7 @@ var registryEntry = &library.Entry{
 			Name:        "OUT",
 			Type:        "all",
 			Description: "Output port for data",
-			Required:    false,
+			Required:    true,
 		},
 		library.EntryPort{
 			Name:        "ERR",
